@@ -113,7 +113,7 @@ class OptimizationWindow(QWidget):
             if len(points) < 2:
                 raise ValueError("Введите как минимум 2 точки.")
 
-            optimized_route, total_cost, steps, total_distance = self.optimize(
+            optimized_route, total_cost, steps, total_distance = self.genetic_algorithm(
                 points, weight, battery, max_distance, objective, return_to_start, wind_vector
             )
 
@@ -166,47 +166,88 @@ class OptimizationWindow(QWidget):
         speed = base_speed * wind_effect
         return base_distance / speed
 
-    def optimize(self, points, weight, battery, max_range, objective, return_to_start, wind_vector):
-        visited = [points[0]]
-        unvisited = points[1:]
-        current = points[0]
+    def genetic_algorithm(self, points, weight, battery, max_range, objective, return_to_start, wind_vector):
+        population_size = 100
+        generations = 500
+        mutation_rate = 0.1
+        elite_size = 10
 
-        steps = []
+        # Генерация начальной популяции
+        population = [self.create_random_route(points) for _ in range(population_size)]
+        for generation in range(generations):
+            population = self.evolve_population(population, points, weight, battery, max_range, objective, return_to_start, wind_vector, mutation_rate, elite_size)
+            best_route = self.get_best_route(population, points, weight, battery, max_range, objective, return_to_start, wind_vector)
+
+        best_route = self.get_best_route(population, points, weight, battery, max_range, objective, return_to_start, wind_vector)
+        return best_route['route'], best_route['cost'], best_route['steps'], best_route['total_distance']
+
+    def create_random_route(self, points):
+        route = points[:]
+        random.shuffle(route)
+        return route
+
+    def evolve_population(self, population, points, weight, battery, max_range, objective, return_to_start, wind_vector, mutation_rate, elite_size):
+        # Этап отбора
+        population = sorted(population, key=lambda route: self.calculate_route_cost(route, points, weight, battery, max_range, objective, return_to_start, wind_vector))
+        elite = population[:elite_size]
+
+        # Кроссовер (смешивание лучших маршрутов)
+        children = []
+        for i in range(len(population) - elite_size):
+            parent1, parent2 = random.sample(elite, 2)
+            child = self.crossover(parent1, parent2)
+            children.append(child)
+
+        # Мутация
+        for child in children:
+            if random.random() < mutation_rate:
+                self.mutate(child)
+
+        # Собираем новую популяцию
+        population = elite + children
+        return population
+
+    def crossover(self, parent1, parent2):
+        # Кроссовер для создания потомков
+        crossover_point = random.randint(1, len(parent1) - 1)
+        child = parent1[:crossover_point] + [p for p in parent2 if p not in parent1[:crossover_point]]
+        return child
+
+    def mutate(self, route):
+        # Мутация: случайный обмен местами двух точек в маршруте
+        idx1, idx2 = random.sample(range(len(route)), 2)
+        route[idx1], route[idx2] = route[idx2], route[idx1]
+
+    def calculate_route_cost(self, route, points, weight, battery, max_range, objective, return_to_start, wind_vector):
         total_cost = 0.0
         total_distance = 0.0
+        steps = []
 
-        while unvisited:
+        for i in range(len(route) - 1):
+            p1, p2 = route[i], route[i + 1]
             if objective == "Оптимизация по времени":
-                next_point = min(unvisited, key=lambda p: self.time_cost(current, p, wind_vector))
-                cost = self.time_cost(current, next_point, wind_vector)
+                cost = self.time_cost(p1, p2, wind_vector)
             else:
-                next_point = min(unvisited, key=lambda p: self.energy_cost(current, p, weight, wind_vector))
-                cost = self.energy_cost(current, next_point, weight, wind_vector)
-
-            d = self.distance(current, next_point)
-            steps.append((current, next_point, d, cost))
-
+                cost = self.energy_cost(p1, p2, weight, wind_vector)
+            d = self.distance(p1, p2)
+            steps.append((p1, p2, d, cost))
             total_cost += cost
             total_distance += d
-            current = next_point
-            visited.append(current)
-            unvisited.remove(current)
 
         if return_to_start:
-            d = self.distance(current, points[0])
-            cost = d if objective == "Оптимизация по времени" else self.energy_cost(current, points[0], weight,
-                                                                                    wind_vector)
-            steps.append((current, points[0], d, cost))
+            p1, p2 = route[-1], route[0]
+            d = self.distance(p1, p2)
+            cost = self.energy_cost(p1, p2, weight, wind_vector) if objective == "Оптимизация по времени" else self.energy_cost(p1, p2, weight, wind_vector)
+            steps.append((p1, p2, d, cost))
             total_cost += cost
             total_distance += d
-            visited.append(points[0])
 
-        if total_distance > max_range * (battery / 100):
-            raise ValueError(
-                f"Недостаточная макс. дальность полёта. Требуется {total_distance:.2f} км, доступно {max_range * (battery / 100):.2f} км"
-            )
+        return total_cost, total_distance, steps
 
-        return visited, total_cost, steps, total_distance
+    def get_best_route(self, population, points, weight, battery, max_range, objective, return_to_start, wind_vector):
+        best_route = min(population, key=lambda route: self.calculate_route_cost(route, points, weight, battery, max_range, objective, return_to_start, wind_vector))
+        total_cost, total_distance, steps = self.calculate_route_cost(best_route, points, weight, battery, max_range, objective, return_to_start, wind_vector)
+        return {'route': best_route, 'cost': total_cost, 'steps': steps, 'total_distance': total_distance}
 
     def visualize_route(self, points, objective, cost):
         self.figure.clear()
