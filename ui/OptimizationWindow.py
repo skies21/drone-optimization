@@ -26,6 +26,7 @@ class OptimizationWindow(QWidget):
         self.weight_input = QLineEdit()
         self.range_input = QLineEdit()
         self.battery_input = QLineEdit()
+        self.speed_input = QLineEdit()
         self.objective_combo = QComboBox()
         self.objective_combo.addItems(["Оптимизация по времени", "Оптимизация по энергии"])
         self.return_checkbox = QCheckBox("Возврат к начальному пункту")
@@ -36,6 +37,8 @@ class OptimizationWindow(QWidget):
         left_layout.addWidget(self.range_input)
         left_layout.addWidget(QLabel("Заряд батареи (%):"))
         left_layout.addWidget(self.battery_input)
+        left_layout.addWidget(QLabel("Скорость дрона (км/ч):"))
+        left_layout.addWidget(self.speed_input)
         left_layout.addWidget(QLabel("Цель оптимизации:"))
         left_layout.addWidget(self.objective_combo)
         left_layout.addWidget(self.return_checkbox)
@@ -112,6 +115,8 @@ class OptimizationWindow(QWidget):
             objective = self.objective_combo.currentText()
             return_to_start = self.return_checkbox.isChecked()
 
+            speed = float(self.speed_input.text() or 10)
+
             if not (0 <= battery <= 100):
                 raise ValueError("Заряд должен быть от 0 до 100")
 
@@ -138,7 +143,7 @@ class OptimizationWindow(QWidget):
                 raise ValueError("Введите как минимум 2 точки.")
 
             optimized_route, total_cost, steps, total_distance = self.genetic_algorithm(
-                points, weight, battery, max_distance, objective, return_to_start, wind_vector
+                points, weight, battery, max_distance, objective, return_to_start, wind_vector, speed
             )
 
             self.visualize_route(optimized_route, objective, total_cost)
@@ -171,7 +176,7 @@ class OptimizationWindow(QWidget):
 
         return base_distance * elevation_penalty * weight_penalty * wind_effect
 
-    def time_cost(self, p1, p2, wind_vector=(0, 0)):
+    def time_cost(self, p1, p2, wind_vector=(0, 0), speed=10.):
         dx = p2[0] - p1[0]
         dy = p2[1] - p1[1]
         dz = p2[2] - p1[2]
@@ -186,11 +191,10 @@ class OptimizationWindow(QWidget):
         wind_effect = 1 - wind_proj / 10
         wind_effect = max(0.5, min(wind_effect, 1.5))
 
-        base_speed = 10
-        speed = base_speed * wind_effect
+        speed = speed * wind_effect
         return base_distance / speed # Затраты времени в часах
 
-    def genetic_algorithm(self, points, weight, battery, max_range, objective, return_to_start, wind_vector):
+    def genetic_algorithm(self, points, weight, battery, max_range, objective, return_to_start, wind_vector, speed):
         population_size = 100
         generations = 500
         mutation_rate = 0.1
@@ -205,12 +209,12 @@ class OptimizationWindow(QWidget):
         for generation in range(generations):
             population = self.evolve_population(
                 population, [start_point] + middle_points, weight, battery, max_range,
-                objective, return_to_start, wind_vector, mutation_rate, elite_size
+                objective, return_to_start, wind_vector, mutation_rate, elite_size, speed
             )
 
         best_route = self.get_best_route(
             population, [start_point] + middle_points, weight, battery, max_range,
-            objective, return_to_start, wind_vector
+            objective, return_to_start, wind_vector, speed
         )
 
         return best_route['route'], best_route['cost'], best_route['steps'], best_route['total_distance']
@@ -220,9 +224,12 @@ class OptimizationWindow(QWidget):
         random.shuffle(middle_points)
         return [start_point] + middle_points
 
-    def evolve_population(self, population, points, weight, battery, max_range, objective, return_to_start, wind_vector, mutation_rate, elite_size):
+    def evolve_population(self, population, points, weight, battery, max_range, objective, return_to_start, wind_vector,
+                          mutation_rate, elite_size, speed):
         # Этап отбора
-        population = sorted(population, key=lambda route: self.calculate_route_cost(route, points, weight, battery, max_range, objective, return_to_start, wind_vector))
+        population = sorted(population,
+                            key=lambda route: self.calculate_route_cost(route, points, weight, battery, max_range,
+                                                                        objective, return_to_start, wind_vector, speed))
         elite = population[:elite_size]
 
         # Кроссовер (смешивание лучших маршрутов)
@@ -255,7 +262,8 @@ class OptimizationWindow(QWidget):
         idx1, idx2 = random.sample(range(1, len(route)), 2)
         route[idx1], route[idx2] = route[idx2], route[idx1]
 
-    def calculate_route_cost(self, route, points, weight, battery, max_range, objective, return_to_start, wind_vector):
+    def calculate_route_cost(self, route, points, weight, battery, max_range, objective, return_to_start, wind_vector,
+                             speed):
         total_cost = 0.0
         total_distance = 0.0
         steps = []
@@ -263,7 +271,7 @@ class OptimizationWindow(QWidget):
         for i in range(len(route) - 1):
             p1, p2 = route[i], route[i + 1]
             if objective == "Оптимизация по времени":
-                cost = self.time_cost(p1, p2, wind_vector)
+                cost = self.time_cost(p1, p2, wind_vector, speed)
             else:
                 cost = self.energy_cost(p1, p2, weight, wind_vector)
             d = self.distance(p1, p2)
@@ -274,16 +282,23 @@ class OptimizationWindow(QWidget):
         if return_to_start:
             p1, p2 = route[-1], route[0]
             d = self.distance(p1, p2)
-            cost = self.energy_cost(p1, p2, weight, wind_vector) if objective == "Оптимизация по времени" else self.energy_cost(p1, p2, weight, wind_vector)
+            cost = self.energy_cost(p1, p2, weight,
+                                    wind_vector) if objective == "Оптимизация по времени" else self.energy_cost(p1, p2,
+                                                                                                                weight,
+                                                                                                                wind_vector)
             steps.append((p1, p2, d, cost))
             total_cost += cost
             total_distance += d
 
         return total_cost, total_distance, steps
 
-    def get_best_route(self, population, points, weight, battery, max_range, objective, return_to_start, wind_vector):
-        best_route = min(population, key=lambda route: self.calculate_route_cost(route, points, weight, battery, max_range, objective, return_to_start, wind_vector))
-        total_cost, total_distance, steps = self.calculate_route_cost(best_route, points, weight, battery, max_range, objective, return_to_start, wind_vector)
+    def get_best_route(self, population, points, weight, battery, max_range, objective, return_to_start, wind_vector,
+                       speed):
+        best_route = min(population,
+                         key=lambda route: self.calculate_route_cost(route, points, weight, battery, max_range,
+                                                                     objective, return_to_start, wind_vector, speed))
+        total_cost, total_distance, steps = self.calculate_route_cost(best_route, points, weight, battery, max_range,
+                                                                      objective, return_to_start, wind_vector, speed)
         return {'route': best_route, 'cost': total_cost, 'steps': steps, 'total_distance': total_distance}
 
     def visualize_route(self, points, objective, cost):
@@ -348,9 +363,10 @@ class OptimizationWindow(QWidget):
         headers = ["Из", "В", "Дистанция (км)", f"Затраты ({unit})"]
         self.cost_table.setHorizontalHeaderLabels(headers)
 
+        speed = float(self.speed_input.text() or 10)
         for row, (start, end, dist, cost) in enumerate(steps):
             if self.objective_combo.currentText() == "Оптимизация по времени":
-                cost = self.time_cost(start, end)
+                cost = self.time_cost(start, end, speed=speed)
 
             self.cost_table.setItem(row, 0, QTableWidgetItem(f"{start}"))
             self.cost_table.setItem(row, 1, QTableWidgetItem(f"{end}"))
