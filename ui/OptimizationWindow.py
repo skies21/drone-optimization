@@ -8,10 +8,9 @@ from PyQt6.QtWidgets import (
 import numpy as np
 import matplotlib
 from matplotlib.figure import Figure
-
+from mpl_toolkits.mplot3d import Axes3D
 matplotlib.use('QtAgg')
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-
 
 
 class OptimizationWindow(QWidget):
@@ -41,7 +40,7 @@ class OptimizationWindow(QWidget):
         main_layout.addWidget(self.return_checkbox)
 
         # Ввод координат
-        main_layout.addWidget(QLabel("Точки маршрута (формат: x,y):"))
+        main_layout.addWidget(QLabel("Точки маршрута (формат: x,y,z):"))
         self.points_input = QTextEdit()
         self.points_input.setFont(QFont("Courier", 10))
         main_layout.addWidget(self.points_input)
@@ -108,8 +107,8 @@ class OptimizationWindow(QWidget):
             raw_points = self.points_input.toPlainText().strip().split('\n')
             points = []
             for line in raw_points:
-                x_str, y_str = line.strip().split(',')
-                points.append((float(x_str), float(y_str)))
+                x_str, y_str, z_str = line.strip().split(',')
+                points.append((float(x_str), float(y_str), float(z_str)))
 
             if len(points) < 2:
                 raise ValueError("Введите как минимум 2 точки.")
@@ -125,29 +124,25 @@ class OptimizationWindow(QWidget):
             QMessageBox.warning(self, "Ошибка", str(e))
 
     def distance(self, p1, p2):
-        return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
+        return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2 + (p1[2] - p2[2]) ** 2)
 
     def energy_cost(self, p1, p2, weight, wind_vector=(0, 0)):
         dx = p2[0] - p1[0]
         dy = p2[1] - p1[1]
-        base_distance = math.hypot(dx, dy)
+        dz = p2[2] - p1[2]
+        base_distance = math.sqrt(dx ** 2 + dy ** 2 + dz ** 2)
 
         if base_distance == 0:
             return 0
 
-        elevation_penalty = 5 + (dy ** 2) / 10 if dy > 0 else 1
+        elevation_penalty = 5 + (dz ** 2) / 10 if dz > 0 else 1
         weight_penalty = 1 + (weight / 10)
 
-        # Нормализованный вектор направления
+        # Ветер влияет только на X и Y
         direction = (dx / base_distance, dy / base_distance)
-
-        # Вектор ветра
         wind_x, wind_y = wind_vector
-        wind_proj = (wind_x * direction[0] + wind_y * direction[1])  # скалярное произведение
-
-        # Влияние ветра
-        wind_effect = 1 - wind_proj / 10  # попутный ветер уменьшает, встречный увеличивает
-
+        wind_proj = (wind_x * direction[0] + wind_y * direction[1])
+        wind_effect = 1 - wind_proj / 10
         wind_effect = max(0.5, min(wind_effect, 1.5))
 
         return base_distance * elevation_penalty * weight_penalty * wind_effect
@@ -155,24 +150,19 @@ class OptimizationWindow(QWidget):
     def time_cost(self, p1, p2, wind_vector=(0, 0)):
         dx = p2[0] - p1[0]
         dy = p2[1] - p1[1]
-        base_distance = math.hypot(dx, dy)
+        dz = p2[2] - p1[2]
+        base_distance = math.sqrt(dx ** 2 + dy ** 2 + dz ** 2)
 
         if base_distance == 0:
             return 0
 
-        # Считаем направление движения
         direction = (dx / base_distance, dy / base_distance)
-
-        # Вектор ветра
         wind_x, wind_y = wind_vector
-        wind_proj = (wind_x * direction[0] + wind_y * direction[1])  # скалярное произведение
-
-        # Влияние ветра на скорость
-        wind_effect = 1 - wind_proj / 10  # попутный ветер уменьшает, встречный увеличивает
+        wind_proj = (wind_x * direction[0] + wind_y * direction[1])
+        wind_effect = 1 - wind_proj / 10
         wind_effect = max(0.5, min(wind_effect, 1.5))
 
-        # Рассчитаем время, деля расстояние на скорость
-        base_speed = 10  # это можно заменить на свою скорость
+        base_speed = 10
         speed = base_speed * wind_effect
         return base_distance / speed
 
@@ -221,26 +211,24 @@ class OptimizationWindow(QWidget):
     def visualize_route(self, points, objective, cost):
         self.figure.clear()
 
-        # Основной график маршрута
-        ax_main = self.figure.add_subplot(121)  # 1 строка, 2 столбца, 1-я ячейка
-        x, y = zip(*points)
-        ax_main.plot(x, y, marker='o', linestyle='-', color='blue')
+        ax_main = self.figure.add_subplot(121, projection='3d')
+        x, y, z = zip(*points)
+        ax_main.plot(x, y, z, marker='o', linestyle='-', color='blue')
 
         show_details = self.detailed_mode.isChecked()
 
-        for i, (px, py) in enumerate(zip(x, y)):
-            ax_main.text(px, py, str(i), fontsize=9, ha='right')
+        for i, (px, py, pz) in enumerate(points):
+            ax_main.text(px, py, pz, str(i), fontsize=9, ha='right')
             if show_details and i > 0:
                 prev = points[i - 1]
-                ax_main.annotate("",
-                                 xy=(px, py),
-                                 xytext=(prev[0], prev[1]),
-                                 arrowprops=dict(arrowstyle="->", color='green', lw=1.5)
-                                 )
+                ax_main.quiver(prev[0], prev[1], prev[2],
+                               px - prev[0], py - prev[1], pz - prev[2],
+                               arrow_length_ratio=0.1, color='green')
 
         ax_main.set_title(f"{objective}\nОбщая стоимость: {cost:.2f}")
         ax_main.set_xlabel("X (км)")
         ax_main.set_ylabel("Y (км)")
+        ax_main.set_zlabel("Z (км)")
         ax_main.grid(True)
 
         # Отображение ветра на компасе
@@ -250,18 +238,17 @@ class OptimizationWindow(QWidget):
         except ValueError:
             wind_x = wind_y = 0
 
-        ax_wind = self.figure.add_subplot(122, polar=True)  # полярная система координат для компаса
+        ax_wind = self.figure.add_subplot(122, polar=True)
         ax_wind.set_title("Ветер", fontsize=10)
 
         if wind_x != 0 or wind_y != 0:
-            direction = np.arctan2(wind_y, wind_x)  # угол в радианах
+            direction = np.arctan2(wind_y, wind_x)
             magnitude = np.hypot(wind_x, wind_y)
 
-            # Полярная стрелка (направление и сила ветра)
             ax_wind.arrow(direction, 0, 0, magnitude,
                           width=0.1, head_width=0.2, head_length=0.3,
                           fc='red', ec='red')
-            ax_wind.set_rlim(0, max(1, magnitude))  # масштаб стрелки
+            ax_wind.set_rlim(0, max(1, magnitude))
         else:
             ax_wind.text(0.5, 0.5, "штиль", transform=ax_wind.transAxes,
                          ha='center', va='center', fontsize=10, color='gray')
