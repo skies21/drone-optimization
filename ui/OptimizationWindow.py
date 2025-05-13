@@ -243,11 +243,10 @@ class OptimizationWindow(QWidget):
 
     def crossover(self, parent1, parent2):
         start_point = parent1[0]
-        # Кроссовер по middle points
         middle1 = parent1[1:]
-        middle2 = [p for p in parent2 if p != start_point]
+        middle2 = parent2[1:]
 
-        crossover_point = random.randint(1, len(middle1) - 1)
+        crossover_point = random.randint(1, len(middle1))
         child_middle = middle1[:crossover_point] + [p for p in middle2 if p not in middle1[:crossover_point]]
         return [start_point] + child_middle
 
