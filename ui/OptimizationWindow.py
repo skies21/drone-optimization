@@ -40,8 +40,14 @@ class OptimizationWindow(QWidget):
         left_layout.addWidget(self.objective_combo)
         left_layout.addWidget(self.return_checkbox)
 
-        # Ввод координат
-        left_layout.addWidget(QLabel("Точки маршрута (формат: x,y,z):"))
+        # Заголовок
+        left_layout.addWidget(QLabel("Начальная точка (формат: x,y,z):"))
+        self.start_point_input = QLineEdit()
+        self.start_point_input.setFont(QFont("Courier", 10))
+        left_layout.addWidget(self.start_point_input)
+
+        # Остальные точки
+        left_layout.addWidget(QLabel("Остальные точки маршрута (по одной в строке, формат: x,y,z):"))
         self.points_input = QTextEdit()
         self.points_input.setFont(QFont("Courier", 10))
         left_layout.addWidget(self.points_input)
@@ -109,11 +115,24 @@ class OptimizationWindow(QWidget):
             if not (0 <= battery <= 100):
                 raise ValueError("Заряд должен быть от 0 до 100")
 
-            raw_points = self.points_input.toPlainText().strip().split('\n')
             points = []
-            for line in raw_points:
-                x_str, y_str, z_str = line.strip().split(',')
-                points.append((float(x_str), float(y_str), float(z_str)))
+            start_text = self.start_point_input.text().strip()
+            if start_text:
+                try:
+                    x, y, z = map(float, start_text.split(','))
+                    points.append((x, y, z))
+                except ValueError:
+                    QMessageBox.warning(self, "Ошибка", "Неверный формат начальной точки. Используйте формат: x,y,z")
+                    return
+
+            for line in self.points_input.toPlainText().strip().splitlines():
+                if line.strip():
+                    try:
+                        x, y, z = map(float, line.strip().split(','))
+                        points.append((x, y, z))
+                    except ValueError:
+                        QMessageBox.warning(self, "Ошибка", f"Неверный формат точки: {line}")
+                        return
 
             if len(points) < 2:
                 raise ValueError("Введите как минимум 2 точки.")
@@ -177,19 +196,29 @@ class OptimizationWindow(QWidget):
         mutation_rate = 0.1
         elite_size = 10
 
-        # Генерация начальной популяции
-        population = [self.create_random_route(points) for _ in range(population_size)]
-        for generation in range(generations):
-            population = self.evolve_population(population, points, weight, battery, max_range, objective, return_to_start, wind_vector, mutation_rate, elite_size)
-            best_route = self.get_best_route(population, points, weight, battery, max_range, objective, return_to_start, wind_vector)
+        start_point = points[0]
+        middle_points = points[1:]
 
-        best_route = self.get_best_route(population, points, weight, battery, max_range, objective, return_to_start, wind_vector)
+        # Генерация начальной популяции
+        population = [self.create_random_route(points, start_point) for _ in range(population_size)]
+
+        for generation in range(generations):
+            population = self.evolve_population(
+                population, [start_point] + middle_points, weight, battery, max_range,
+                objective, return_to_start, wind_vector, mutation_rate, elite_size
+            )
+
+        best_route = self.get_best_route(
+            population, [start_point] + middle_points, weight, battery, max_range,
+            objective, return_to_start, wind_vector
+        )
+
         return best_route['route'], best_route['cost'], best_route['steps'], best_route['total_distance']
 
-    def create_random_route(self, points):
-        route = points[:]
-        random.shuffle(route)
-        return route
+    def create_random_route(self, points, start_point):
+        middle_points = points[1:]  # исключаем начальную
+        random.shuffle(middle_points)
+        return [start_point] + middle_points
 
     def evolve_population(self, population, points, weight, battery, max_range, objective, return_to_start, wind_vector, mutation_rate, elite_size):
         # Этап отбора
@@ -213,14 +242,18 @@ class OptimizationWindow(QWidget):
         return population
 
     def crossover(self, parent1, parent2):
-        # Кроссовер для создания потомков
-        crossover_point = random.randint(1, len(parent1) - 1)
-        child = parent1[:crossover_point] + [p for p in parent2 if p not in parent1[:crossover_point]]
-        return child
+        start_point = parent1[0]
+        # Кроссовер по middle points
+        middle1 = parent1[1:]
+        middle2 = [p for p in parent2 if p != start_point]
+
+        crossover_point = random.randint(1, len(middle1) - 1)
+        child_middle = middle1[:crossover_point] + [p for p in middle2 if p not in middle1[:crossover_point]]
+        return [start_point] + child_middle
 
     def mutate(self, route):
-        # Мутация: случайный обмен местами двух точек в маршруте
-        idx1, idx2 = random.sample(range(len(route)), 2)
+        # Затрагиваем все точки кроме начальной
+        idx1, idx2 = random.sample(range(1, len(route)), 2)
         route[idx1], route[idx2] = route[idx2], route[idx1]
 
     def calculate_route_cost(self, route, points, weight, battery, max_range, objective, return_to_start, wind_vector):
