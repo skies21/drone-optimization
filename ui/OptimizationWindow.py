@@ -188,7 +188,7 @@ class OptimizationWindow(QWidget):
 
         base_speed = 10
         speed = base_speed * wind_effect
-        return base_distance / speed
+        return base_distance / speed # Затраты времени в часах
 
     def genetic_algorithm(self, points, weight, battery, max_range, objective, return_to_start, wind_vector):
         population_size = 100
@@ -344,11 +344,14 @@ class OptimizationWindow(QWidget):
         self.cost_table.setColumnCount(4)
         self.cost_table.setRowCount(len(steps))
 
-        unit = "км" if self.objective_combo.currentText() == "Оптимизация по времени" else "кг·км"
+        unit = "км" if self.objective_combo.currentText() == "Оптимизация по затратам" else "часы"
         headers = ["Из", "В", "Дистанция (км)", f"Затраты ({unit})"]
         self.cost_table.setHorizontalHeaderLabels(headers)
 
         for row, (start, end, dist, cost) in enumerate(steps):
+            if self.objective_combo.currentText() == "Оптимизация по времени":
+                cost = self.time_cost(start, end)
+
             self.cost_table.setItem(row, 0, QTableWidgetItem(f"{start}"))
             self.cost_table.setItem(row, 1, QTableWidgetItem(f"{end}"))
             self.cost_table.setItem(row, 2, QTableWidgetItem(f"{dist:.2f}"))
