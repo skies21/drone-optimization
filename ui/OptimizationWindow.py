@@ -31,9 +31,9 @@ class OptimizationWindow(QWidget):
         self.objective_combo.addItems(["Оптимизация по времени", "Оптимизация по энергии"])
         self.return_checkbox = QCheckBox("Возврат к начальному пункту")
 
-        left_layout.addWidget(QLabel("Грузоподъёмность дрона (кг):"))
+        left_layout.addWidget(QLabel("Груз дрона (кг):"))
         left_layout.addWidget(self.weight_input)
-        left_layout.addWidget(QLabel("Макс. дальность полёта (км):"))
+        left_layout.addWidget(QLabel("Дальность полёта (км):"))
         left_layout.addWidget(self.range_input)
         left_layout.addWidget(QLabel("Заряд батареи (%):"))
         left_layout.addWidget(self.battery_input)
@@ -165,7 +165,9 @@ class OptimizationWindow(QWidget):
             return 0
 
         elevation_penalty = 5 + (dz ** 2) / 10 if dz > 0 else 1
-        weight_penalty = 1 + (weight / 10)
+
+        # Увеличиваем энергозатраты в зависимости от веса
+        weight_penalty = 1 + (weight ** 1.5) / 100  # Экспоненциально
 
         # Ветер влияет только на X и Y
         direction = (dx / base_distance, dy / base_distance)
@@ -176,7 +178,7 @@ class OptimizationWindow(QWidget):
 
         return base_distance * elevation_penalty * weight_penalty * wind_effect
 
-    def time_cost(self, p1, p2, wind_vector=(0, 0), speed=10.):
+    def time_cost(self, p1, p2, wind_vector=(0, 0), speed=10., weight=10., k=100):
         dx = p2[0] - p1[0]
         dy = p2[1] - p1[1]
         dz = p2[2] - p1[2]
@@ -191,8 +193,9 @@ class OptimizationWindow(QWidget):
         wind_effect = 1 - wind_proj / 10
         wind_effect = max(0.5, min(wind_effect, 1.5))
 
-        speed = speed * wind_effect
-        return base_distance / speed # Затраты времени в часах
+        # Уменьшаем скорость с учётом веса и влияния ветра
+        speed = speed / (1 + weight / k) * wind_effect
+        return base_distance / speed
 
     def genetic_algorithm(self, points, weight, battery, max_range, objective, return_to_start, wind_vector, speed):
         population_size = 100
@@ -271,7 +274,7 @@ class OptimizationWindow(QWidget):
         for i in range(len(route) - 1):
             p1, p2 = route[i], route[i + 1]
             if objective == "Оптимизация по времени":
-                cost = self.time_cost(p1, p2, wind_vector, speed)
+                cost = self.time_cost(p1, p2, wind_vector, speed, weight)
             else:
                 cost = self.energy_cost(p1, p2, weight, wind_vector)
             d = self.distance(p1, p2)
@@ -282,10 +285,9 @@ class OptimizationWindow(QWidget):
         if return_to_start:
             p1, p2 = route[-1], route[0]
             d = self.distance(p1, p2)
-            cost = self.energy_cost(p1, p2, weight,
-                                    wind_vector) if objective == "Оптимизация по времени" else self.energy_cost(p1, p2,
-                                                                                                                weight,
-                                                                                                                wind_vector)
+            cost = self.time_cost(p1, p2, wind_vector, speed, weight) if objective == "Оптимизация по времени" \
+                else self.energy_cost(p1, p2, weight, wind_vector)
+
             steps.append((p1, p2, d, cost))
             total_cost += cost
             total_distance += d
@@ -356,21 +358,38 @@ class OptimizationWindow(QWidget):
 
     def display_cost_table(self, steps):
         self.cost_table.clear()
-        self.cost_table.setColumnCount(4)
+        self.cost_table.setColumnCount(5)
         self.cost_table.setRowCount(len(steps))
 
         unit = "км" if self.objective_combo.currentText() == "Оптимизация по затратам" else "часы"
-        headers = ["Из", "В", "Дистанция (км)", f"Затраты ({unit})"]
+        headers = ["Из", "В", "Дистанция (км)", f"Затраты по времени ({unit})", "Затраты по энергии (кВтч)"]
         self.cost_table.setHorizontalHeaderLabels(headers)
 
         speed = float(self.speed_input.text() or 10)
+        weight = float(self.weight_input.text() or 10)
+        wind_x = float(self.wind_x_input.text() or 0)
+        wind_y = float(self.wind_y_input.text() or 0)
+        wind_vector = (wind_x, wind_y)
+
         for row, (start, end, dist, cost) in enumerate(steps):
             if self.objective_combo.currentText() == "Оптимизация по времени":
-                cost = self.time_cost(start, end, speed=speed)
+                time_cost = self.time_cost(start, end, wind_vector, speed, weight)
+                energy_cost = self.energy_cost(start, end, weight, wind_vector)
+            else:
+                time_cost = self.time_cost(start, end, wind_vector, speed, weight)
+                energy_cost = self.energy_cost(start, end, weight, wind_vector)
 
             self.cost_table.setItem(row, 0, QTableWidgetItem(f"{start}"))
             self.cost_table.setItem(row, 1, QTableWidgetItem(f"{end}"))
             self.cost_table.setItem(row, 2, QTableWidgetItem(f"{dist:.2f}"))
-            self.cost_table.setItem(row, 3, QTableWidgetItem(f"{cost:.2f}"))
+
+            if unit == "часы":
+                hours = int(time_cost)
+                minutes = (time_cost - hours) * 60
+                self.cost_table.setItem(row, 3, QTableWidgetItem(f"{hours:02}:{int(minutes):02}"))
+            else:
+                self.cost_table.setItem(row, 3, QTableWidgetItem(f"{time_cost:.2f}"))
+
+            self.cost_table.setItem(row, 4, QTableWidgetItem(f"{energy_cost:.2f} кВтч"))
 
         self.cost_table.resizeColumnsToContents()
