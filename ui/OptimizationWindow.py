@@ -289,6 +289,9 @@ class OptimizationWindow(QWidget):
     def visualize_route(self, points, objective, cost):
         self.figure.clear()
 
+        if self.return_checkbox.isChecked():
+            points.append(points[0])
+
         ax_main = self.figure.add_subplot(111, projection='3d')
         x, y, z = zip(*points)
         ax_main.plot(x, y, z, marker='o', linestyle='-', color='blue')
@@ -296,7 +299,11 @@ class OptimizationWindow(QWidget):
         show_details = self.detailed_mode.isChecked()
 
         for i, (px, py, pz) in enumerate(points):
-            ax_main.text(px, py, pz, str(i), fontsize=12, ha='right')
+            if i == 0:
+                ax_main.text(px, py, pz, str(i), fontsize=12, ha='right')
+            elif i != len(points) - 1:
+                ax_main.text(px, py, pz, str(i), fontsize=12, ha='right')
+
             if show_details and i > 0:
                 prev = points[i - 1]
                 ax_main.quiver(prev[0], prev[1], prev[2],
