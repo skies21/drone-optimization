@@ -344,7 +344,12 @@ class OptimizationWindow(QWidget):
         else:
             wind_str = " | Ветер: штиль"
 
-        ax_main.set_title(f"{objective}\nОбщая стоимость: {cost:.2f}{wind_str}", fontsize=14)
+        if self.objective_combo.currentText() == "Оптимизация по времени":
+            unit = "часы"
+        else:
+            unit = "кВтч"
+
+        ax_main.set_title(f"{objective}\nОбщая стоимость: {cost:.2f} {unit}{wind_str}", fontsize=14)
 
         ax_main.set_xlabel("X (км)", fontsize=12)
         ax_main.set_ylabel("Y (км)", fontsize=12)
