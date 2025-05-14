@@ -155,7 +155,7 @@ class OptimizationWindow(QWidget):
     def distance(self, p1, p2):
         return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2 + (p1[2] - p2[2]) ** 2)
 
-    def energy_cost(self, p1, p2, weight, wind_vector=(0, 0)):
+    def energy_cost(self, p1, p2, wind_vector=(0, 0), speed=10., weight=10.):
         dx = p2[0] - p1[0]
         dy = p2[1] - p1[1]
         dz = p2[2] - p1[2]
@@ -169,14 +169,13 @@ class OptimizationWindow(QWidget):
         # Увеличиваем энергозатраты в зависимости от веса
         weight_penalty = 1 + (weight ** 1.5) / 100  # Экспоненциально
 
-        # Ветер влияет только на X и Y
-        direction = (dx / base_distance, dy / base_distance)
         wind_x, wind_y = wind_vector
-        wind_proj = (wind_x * direction[0] + wind_y * direction[1])
-        wind_effect = 1 - wind_proj / 10
-        wind_effect = max(0.5, min(wind_effect, 1.5))
+        effective_speed_x = speed - wind_x
+        effective_speed_y = speed - wind_y
 
-        return base_distance * elevation_penalty * weight_penalty * wind_effect
+        effective_speed = math.sqrt(effective_speed_x ** 2 + effective_speed_y ** 2)
+
+        return base_distance * elevation_penalty * weight_penalty / effective_speed
 
     def time_cost(self, p1, p2, wind_vector=(0, 0), speed=10., weight=10., k=100):
         dx = p2[0] - p1[0]
@@ -187,15 +186,13 @@ class OptimizationWindow(QWidget):
         if base_distance == 0:
             return 0
 
-        direction = (dx / base_distance, dy / base_distance)
         wind_x, wind_y = wind_vector
-        wind_proj = (wind_x * direction[0] + wind_y * direction[1])
-        wind_effect = 1 - wind_proj / 10
-        wind_effect = max(0.5, min(wind_effect, 1.5))
+        effective_speed_x = speed - wind_x
+        effective_speed_y = speed - wind_y
 
-        # Уменьшаем скорость с учётом веса и влияния ветра
-        speed = speed / (1 + weight / k) * wind_effect
-        return base_distance / speed
+        effective_speed = math.sqrt(effective_speed_x ** 2 + effective_speed_y ** 2)
+
+        return base_distance / effective_speed
 
     def genetic_algorithm(self, points, weight, battery, max_range, objective, return_to_start, wind_vector, speed):
         population_size = 100
@@ -276,7 +273,7 @@ class OptimizationWindow(QWidget):
             if objective == "Оптимизация по времени":
                 cost = self.time_cost(p1, p2, wind_vector, speed, weight)
             else:
-                cost = self.energy_cost(p1, p2, weight, wind_vector)
+                cost = self.energy_cost(p1, p2, wind_vector, speed, weight)
             d = self.distance(p1, p2)
             steps.append((p1, p2, d, cost))
             total_cost += cost
@@ -286,7 +283,7 @@ class OptimizationWindow(QWidget):
             p1, p2 = route[-1], route[0]
             d = self.distance(p1, p2)
             cost = self.time_cost(p1, p2, wind_vector, speed, weight) if objective == "Оптимизация по времени" \
-                else self.energy_cost(p1, p2, weight, wind_vector)
+                else self.energy_cost(p1, p2, wind_vector, speed, weight)
 
             steps.append((p1, p2, d, cost))
             total_cost += cost
@@ -374,10 +371,10 @@ class OptimizationWindow(QWidget):
         for row, (start, end, dist, cost) in enumerate(steps):
             if self.objective_combo.currentText() == "Оптимизация по времени":
                 time_cost = self.time_cost(start, end, wind_vector, speed, weight)
-                energy_cost = self.energy_cost(start, end, weight, wind_vector)
+                energy_cost = self.energy_cost(start, end, wind_vector, speed, weight)
             else:
                 time_cost = self.time_cost(start, end, wind_vector, speed, weight)
-                energy_cost = self.energy_cost(start, end, weight, wind_vector)
+                energy_cost = self.energy_cost(start, end, wind_vector, speed, weight)
 
             self.cost_table.setItem(row, 0, QTableWidgetItem(f"{start}"))
             self.cost_table.setItem(row, 1, QTableWidgetItem(f"{end}"))
