@@ -177,7 +177,7 @@ class OptimizationWindow(QWidget):
 
         return base_distance * elevation_penalty * weight_penalty / effective_speed
 
-    def time_cost(self, p1, p2, wind_vector=(0, 0), speed=10., weight=10., k=100):
+    def time_cost(self, p1, p2, wind_vector=(0, 0), speed=10., weight=10.):
         dx = p2[0] - p1[0]
         dy = p2[1] - p1[1]
         dz = p2[2] - p1[2]
@@ -192,7 +192,11 @@ class OptimizationWindow(QWidget):
 
         effective_speed = math.sqrt(effective_speed_x ** 2 + effective_speed_y ** 2)
 
-        return base_distance / effective_speed
+        elevation_penalty = 1 + dz / 10 if dz > 0 else 1
+
+        weight_penalty = 1 + weight / 100
+
+        return base_distance * elevation_penalty * weight_penalty / effective_speed
 
     def genetic_algorithm(self, points, weight, battery, max_range, objective, return_to_start, wind_vector, speed):
         population_size = 100
