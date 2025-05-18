@@ -146,6 +146,20 @@ class OptimizationWindow(QWidget):
                 points, weight, battery, max_distance, objective, return_to_start, wind_vector, speed
             )
 
+            total_energy_cost = 0
+            for start, end, dist, _ in steps:
+                total_energy_cost += self.energy_cost(start, end, wind_vector, speed, weight)
+
+            battery_capacity_kwh = 100
+            available_energy = battery / 100 * battery_capacity_kwh
+
+            if total_energy_cost > available_energy:
+                QMessageBox.warning(self, "Недостаточно заряда",
+                                    f"Для маршрута требуется {total_energy_cost:.2f} кВтч, "
+                                    f"Доступно только {available_energy:.2f} кВтч. "
+                                    f"Пожалуйста, выберите более короткий маршрут или увеличьте заряд.")
+                return
+
             self.visualize_route(optimized_route, objective, total_cost)
             self.display_cost_table(steps)
 
